@@ -290,6 +290,39 @@ sudo systemctl start ftp-file-monitor
 sudo systemctl status ftp-file-monitor
 ```
 
+## ufw Setup
+
+```bash
+# Allow SSH (port 22)
+sudo ufw allow 22/tcp
+
+# Allow FTP (port 21)
+sudo ufw allow 21/tcp
+
+# Allow passive FTP data transfer (ports 50000-51000)
+sudo ufw allow 50000:51000/tcp
+
+# Enable UFW (if not already enabled)
+sudo ufw enable
+
+# Refresh UFW
+sudo ufw reload
+
+# Check the status to verify the rules
+sudo ufw status verbose
+```
+
+Example Output:
+
+<div align="center">
+  <img src="./images/vsftpd/ftp-ufw-setup.png" alt="vsftp ufw setup">
+</div>
+
+
+
+
+
+
 Congrats, you should be able to have a fully working FTP server with restrictions on file uploads!
 
 
