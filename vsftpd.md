@@ -318,10 +318,47 @@ Example Output:
   <img src="./images/vsftpd/ftp-ufw-setup.png" alt="vsftp ufw setup">
 </div>
 
+# Fail2Ban Setup
 
+Create a local fail2ban config file:
+```bash
+# The default configuration file is located at /etc/fail2ban/jail.conf, but you should avoid editing this file directly to prevent losing changes during updates.
+sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+```
 
+Edit the local file's [sshd] sectipn:
+```bash
+sudo nano /etc/fail2ban/jail.local
+```
 
+Sample jail.local file:
+```conf
+[sshd]
 
+# To use more aggressive sshd modes set filter parameter "mode" in jail.local:
+# normal (default), ddos, extra or aggressive (combines all).
+# See "tests/files/logs/sshd" or "filter.d/sshd.conf" for usage example and details.
+mode   = ddos
+enabled = true
+port    = ssh
+filter = sshd
+logpath = %(sshd_log)s
+backend = %(sshd_backend)s
+maxretry = 5
+# 10 Minute Ban Time
+bantime = 600
+# 5 minute window for retries
+findtime = 300
+# Bans all ports on the offending machine for 10 minutes
+banaction = iptables-allports
+```
+
+Restart the service:
+```bash
+sudo systemctl restart fail2ban
+sudo fail2ban-client status # check service status 
+sudo fail2ban-client status sshd # check jail status
+```
 
 Congrats, you should be able to have a fully working FTP server with restrictions on file uploads!
 
