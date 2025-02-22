@@ -41,6 +41,54 @@ sudo systemctl daemon-reexec
 sudo systemctl restart vsftpd
 ```
 
+## Restrict default FTP User
+For some reason there is a default FTP user: **ftp**.   
+This user is only need if anonymous authentication is enabled (never do this!).   
+Since we don't want anonymous authentication, let's restrict this user.   
+
+Disable remote SSH logins:
+```bash
+sudo usermod --shell /sbin/nologin ftp
+```
+
+Lock the **ftp** user's password:
+```bash
+sudo passwd -l ftp
+```
+
+
+## Create a new user exclusively for FTP Uploads
+
+Add a new user:
+```bash
+# Adding new user with the username: bob
+sudo adduser bob 
+# Then follow prompts to add a password
+```
+
+Configure user to have no shell access:
+```bash 
+# Setting no shell access for the user: bob
+sudo usermod -s /usr/sbin/nologin bob
+```
+
+Set the user's home directory (if not already created!):
+```bash
+sudo mkdir -p /home/bob
+```
+
+Add the user to an FTP **Allowed** list:
+```bash
+# Add the user: bob to the FTP ALLOWED list 
+echo "bob" | sudo tee -a /etc/vsftpd.user_list
+```
+
+Finalize changes:
+```bash
+sudo systemctl restart vsftpd
+sudo systemctl status vsftpd
+```
+
 
 ## Create an FTP upload directory for FTP Users
 You want to create a directory for just ftp uploads for efficient organization and security. I created the upload directory named **ftp** for each user on the ftp server.
@@ -65,18 +113,17 @@ for user in /home/*; do
         USER_GROUP=$(id -gn "$user")  # Get the user's primary group
 
         # Create ftp directory in user's home if it doesn't exist
-        sudo mkdir -p "/home/$user/ftp"
+        sudo mkdir -p "/home/$user/ftp_uploads"
 
         # Set ownership: user and their group
-        sudo chown "$user":"$USER_GROUP" "/home/$user/ftp"
+        sudo chown "$user":"$USER_GROUP" "/home/$user/ftp_uploads"
 
         # Set permissions: rwx for user/group, rx for others
-        sudo chmod 775 "/home/$user/ftp"
+        sudo chmod 775 "/home/$user/ftp_uploads"
 
         echo "Created FTP directory for $user with user ownership and user group ($USER_GROUP)"
     fi
 done
-
 ```
 
 Make the script executable:
@@ -128,7 +175,7 @@ pasv_max_port=51000
 # Setting the default directory for file uploads to be /home/$USER/ftp
 # WARNING: Make sure each user has a /home/$USER/ftp directory
 user_sub_token=$USER
-local_root=/home/$USER/ftp
+local_root=/home/$USER/ftp_uploads
 
 # Makes it so users can have a custom file designating their default directory on their profile!
 user_config_dir=/etc/vsftpd/user_conf
@@ -139,8 +186,23 @@ chroot_local_user=YES
 # Allows the upload directory to be writeable
 allow_writeable_chroot=YES
 
-# -------------------------------------------------------------------------------
+# Restricted User Configuration
+userlist_enable=YES
+userlist_file=/etc/vsftpd.user_list
+userlist_deny=NO
 
+# Enable FTP Logging
+log_ftp_protocol=YES
+xferlog_enable=YES
+xferlog_std_format=NO
+
+#-------------------------------------------------------------------------------
+```
+
+Finalize changes:
+```bash
+sudo systemctl restart vsftpd
+sudo systemctl status vsftpd
 ```
 
 
@@ -171,7 +233,7 @@ sudo nano /etc/vsftpd/user_conf/lila.leonard
 
 Sample user configuration file:
 ```conf
-local_root=/home/lila.leonard@team12.isucdc.com/ftp
+local_root=/home/lila.leonard@team12.isucdc.com/ftp_uploads
 chroot_local_user=YES
 ```
 
@@ -217,7 +279,7 @@ fi
 
 # Find all FTP directories under /home/* and watch them
 WATCH_DIRS=()
-for dir in /home/*/ftp; do
+for dir in /home/*/ftp_uploads; do
     if [ -d "$dir" ]; then
         WATCH_DIRS+=("$dir")
     fi
@@ -225,7 +287,7 @@ done
 
 # Check if there are directories to watch
 if [ ${#WATCH_DIRS[@]} -eq 0 ]; then
-    echo "Error: No FTP directories found in /home/*/ftp." | tee -a "$LOG_FILE"
+    echo "Error: No FTP directories found in /home/*/ftp_uploads." | tee -a "$LOG_FILE"
     exit 1
 fi
 
@@ -318,7 +380,7 @@ Example Output:
   <img src="./images/vsftpd/ftp-ufw-setup.png" alt="vsftp ufw setup">
 </div>
 
-# Fail2Ban Setup
+## Fail2Ban Setup
 
 Create a local fail2ban config file:
 ```bash
@@ -326,7 +388,7 @@ Create a local fail2ban config file:
 sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
 ```
 
-Edit the local file's [sshd] sectipn:
+Edit the local file's [sshd] and [vsftpd] sections:
 ```bash
 sudo nano /etc/fail2ban/jail.local
 ```
@@ -351,6 +413,17 @@ bantime = 600
 findtime = 300
 # Bans all ports on the offending machine for 10 minutes
 banaction = iptables-allports
+
+#-------------------------------------------------------------------------------
+
+[vsftpd]
+enabled = true
+port = ftp,ftp-data,ftps
+logpath = /var/log/vsftpd.log
+backend = auto
+maxretry = 5
+bantime = 600
+findtime = 300
 ```
 
 Restart the service:
@@ -358,9 +431,176 @@ Restart the service:
 sudo systemctl restart fail2ban
 sudo fail2ban-client status # check service status 
 sudo fail2ban-client status sshd # check jail status
+sudo fail2ban-client status vsftpd
 ```
 
-Congrats, you should be able to have a fully working FTP server with restrictions on file uploads!
+**Congrats, you should be able to have a fully working FTP server with restrictions on file uploads!**
+
+
+# Extra 
+This section will detail how I connected the Cyber Print Web Server (WWW) to our FTP Server.
+
+
+## Configure Next.js Environment Variables
+
+Edit the .env.local file:
+```bash
+sudo nano /home/$USER/webapp/ICE25-CyberPrintNextjs/business-website/.env.local
+```
+
+Sample .env.local file:
+```conf
+SERVER_FLAG = "Y61nXd3LUBH2g9X"
+CLIENT_FLAG = "daspMcRQPj1X6Lj"
+
+
+DB_HOST = "localhost"
+DB_USER = "cdc"
+DB_PASSWORD = "cdc"
+DB_NAME = "CyberPrint"
+
+
+FTP_HOST = "10.69.69.20"
+FTP_USER = "bob"
+FTP_PASSWORD = "42!UnIS2eXY!9"
+FTP_LOCAL_DIR = "/var/www/html/uploads"
+FTP_REMOTE_DIR = "./"
+
+
+KEYCLOAK_CLIENT_ID="CyberPrint"
+KEYCLOAK_CLIENT_SECRET="0nhcLia5vlQEe9X4UHHIu2LA+LW6WngJJpJ1UFLWzN4="
+KEYCLOAK_ISSUER="http://www.team12.isucdc.com:8080/realms/CyberPrint"
+
+
+AUTH_SECRET="0nhcLia5vlQEe9X4UHHIu2LA+LW6WngJJpJ1UFLWzN4="
+NEXTAUTH_URL="http://www.team12.isucdc.com"
+NEXTAUTH_URL_INTERNAL="http://localhost:3000"
+```
+
+Rebuild Next.js to enact changes:
+```bash
+# Navigate to the correct directory (the parent directory of the "app" directory!)
+cd /home/cdc/webapp/ICE25-CyberPrintNextjs/business-website
+
+# Build the Web App
+yarn build
+
+# Restart the system service
+sudo systemctl restart nextjs-app.service
+sudo systemctl status nextjs-app
+```
+
+
+## Configure Next.js Server Side Input Validation 
+I was able to create a custom php function to validate file upload inputs server side (before it even reaches the ftp server).    
+
+Edit the php file:
+```bash
+sudo nano /var/www/html/print.php
+```
+
+Edit the **php** portion on the top segment of the file:
+```php
+<?php
+// Edited php file that now has server side validation of uploaded 3D printing (.stl) files 
+
+session_start();
+
+$message = '';
+$link = '';
+$file_size = 0;
+
+function is_valid_stl($file_path) {
+    // Open the file in binary mode ("rb" = read binary)
+    $open_file = fopen($file_path, "rb");
+
+    // If the file cannot be opened, return false (invalid file)
+    if (!$open_file) return false;
+
+    // Read the first 80 bytes of the file (STL header)
+    $header = fread($open_file, 80); 
+
+    // Read the next 4 bytes, which should contain the number of triangles (only in binary STL)
+    $triangle_count = fread($open_file, 4);
+
+    // Close the file to free resources
+    fclose($open_file);
+
+    // Check if the header starts with "solid", indicating an ASCII STL file
+    if (strpos(trim($header), "solid") === 0) {
+        return true; // Likely an ASCII STL file
+    }
+
+    // Check if exactly 4 bytes were read for the triangle count, indicating a Binary STL file
+    if (strlen($triangle_count) == 4) {
+        return true; // Likely a Binary STL file
+    }
+
+    // If neither ASCII nor Binary STL conditions are met, return false (invalid STL)
+    return false;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $target_dir = "/var/www/html/uploads/";
+
+    if (!file_exists($target_dir)) {
+        mkdir($target_dir, 0600, true);
+    }
+
+
+    if (isset($_FILES["fileToUpload"])) {
+        //$target_file = $target_dir . basename($_FILES["fileToUpload"]["name"]);
+        $file_name = basename($_FILES["fileToUpload"]["name"]);
+        $file_extension = strtolower(pathinfo($file_name, PATHINFO_EXTENSION)); // Get Extension of uploaded file
+
+        $target_file = $target_dir . $file_name;
+        $tmp_file = $_FILES["fileToUpload"]["tmp_name"];
+
+        if ($file_extension != 'stl') {
+            $message = "ERROR: Invalid file type! Only .stl files are allowed.";
+        } elseif (!is_valid_stl($tmp_file)) {
+            $message = "ERROR: The file does not appear to be a valid STL file.";
+        } else {
+            ///$target_file = $target_dir . $file_name;
+
+            if (move_uploaded_file($_FILES["fileToUpload"]["tmp_name"], $target_file)) {
+                $message = "The file " . basename($_FILES["fileToUpload"]["name"]) . " has been uploaded.";
+                $link = "<a href='/uploads/" . htmlspecialchars(basename($_FILES["fileToUpload"]["name"])) . "' class='view-link' target='_blank'>View it here</a>";
+                $file_size = filesize($target_file);
+                $_SESSION['file_uploaded'] = true;
+                $_SESSION['uploaded_file'] = basename($_FILES["fileToUpload"]["name"]);
+            } else {
+                $message = "Sorry, there was an error uploading your file.";
+            }
+        }
+    
+    } else {
+        $message = "No file was uploaded.";
+    }
+
+    if (isset($_POST['creationName'])) {
+        $_SESSION['creationName'] = $_POST['creationName'];
+    }
+}
+
+$creationName = isset($_SESSION['creationName']) ? $_SESSION['creationName'] : '';
+$uploadedFile = isset($_SESSION['uploaded_file']) ? $_SESSION['uploaded_file'] : '';
+?>
+```
+
+Rebuild Next.js to enact changes:
+```bash
+# Navigate to the correct directory (the parent directory of the "app" directory!)
+cd /home/cdc/webapp/ICE25-CyberPrintNextjs/business-website
+
+# Build the Web App
+yarn build
+
+# Restart the system service
+sudo systemctl restart nextjs-app.service
+sudo systemctl status nextjs-app
+```
+
 
 
 
