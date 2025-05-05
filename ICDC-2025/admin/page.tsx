@@ -2,31 +2,64 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ServerFlagButton } from "../components/server-flag-button";
-import jwt, { JwtPayload } from "jsonwebtoken";
 
 export default function AdminPage() {
   const { data: session } = useSession();
   const [isAdmin, setIsAdmin] = useState(false);
 
+
+  const logAccess = () => {
+    fetch("/api/log", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.accessToken || ""}`, // Add JWT token if needed
+        },
+        body: JSON.stringify({
+            message: "Admin page accessed",
+            user: session?.user?.email || "Unknown User",
+        }),
+    })
+    .then((res) => res.json())
+    .then((data) => console.log("Logging Response:", data)) // Fixed console.log
+    .catch((error) => console.error("Logging error:", error));
+};
+
+
   useEffect(() => {
-    if (session?.accessToken) {
-      try {
-        const decoded = jwt.decode(session.accessToken) as JwtPayload | null;
+    const verifyToken = async () => {
+      if (session?.accessToken) {
+        try {
+          // Call API to validate token
+          const response = await fetch("/api/jwt-auth", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+            },
+          });
 
-        // Use jwt.verify to make sure the session.accessToken is verified
+          if (!response.ok) {
+            throw new Error("Token is invalid or expired");
+          }
 
-        if (decoded!.email.toLowerCase() == "admin@cyberprint.com") {
-          setIsAdmin(true);
-        } else {
+          const data = await response.json();
+
+          // Ensure the user's email matches the admin email
+          if (data.user?.email?.toLowerCase() === "admin@cyberprint.com") {
+            setIsAdmin(true);
+          } else {
+            setIsAdmin(false);
+          }
+        } catch (error) {
+          console.error("Token validation failed:", error);
           setIsAdmin(false);
         }
-      } catch (error) {
-        console.error("Error decoding token:", error);
+      } else {
         setIsAdmin(false);
       }
-    } else {
-      setIsAdmin(false);
-    }
+    };
+
+    verifyToken();
   }, [session]);
 
   if (!isAdmin) {
@@ -40,14 +73,9 @@ export default function AdminPage() {
       </div>
     );
   }
-  
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCI+CjxyZWN0IHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgZmlsbD0iIzBmMTcyYSI+PC9yZWN0Pgo8Y2lyY2xlIGN4PSIzMCIgY3k9IjMwIiByPSIyMCIgc3Ryb2tlPSIjMWUzYThhIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiPjwvY2lyY2xlPgo8cGF0aCBkPSJNMzAgMTBMMTAgMzBMNDAgNTBMNjAgMzBMMzAgMTAiIHN0cm9rZT0iIzFkNGVkOCIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIj48L3BhdGg+Cjwvc3ZnPg==')] opacity-10"></div>
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-blue-400/10 to-blue-300/10 mix-blend-overlay"></div>
-      </div>
-
       <div className="max-w-3xl mx-auto relative z-10">
         <h1 className="text-5xl font-bold text-center mb-12 text-white tracking-tight">
           Admin Dashboard
